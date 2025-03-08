@@ -12,20 +12,21 @@ fn main() -> Result<()> {
     println!("Now you see me");
 
     // redirect stdout to /dev/null
-    let guard = null()?.override_stdout()?;
-    println!("Now you don't");
+    {
+        let _guard = null()?.override_stdout()?;
+        println!("Now you don't");
+    }
 
-    // restore stdout to the console
-    drop(guard);
+    // stdout to the console is restored
     println!("Now you see me again");
 
     // redirect stdout to ./output.txt
-    let guard = File::create("./output.txt")?.override_stdout()?;
-    println!("Now you see me if you search");
+    {
+        let _guard = File::create("./output.txt")?.override_stdout()?;
+        println!("Now you see me if you search");
+    }
 
-    // restore stdout to the console
-    drop(guard);
-
+    // stdout to the console is restored
     let msg = read_to_string("./output.txt")?;
     println!("{msg:?}");
 
