@@ -37,7 +37,7 @@ pub trait StdioOverride: AsFd {
 
     /// Replace the process standard error with a duplicate of the file descriptor.
     ///
-    /// See [duplicate_to_stdout](StdioOverride::duplicate_to_stdout).
+    /// See [duplicate_to_stdout](StdioOverride::override_stdout).
     fn override_stderr(&self) -> Result<Guard> {
         let stdio = Stdio::Stderr;
         let backup = unsafe { override_stdio(self, stdio) }?;
