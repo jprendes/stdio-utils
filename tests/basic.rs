@@ -8,21 +8,18 @@ fn seek_to_start(f: &mut File) -> Result<()> {
     Ok(())
 }
 
-fn with_stdout(sink: impl Duplicate, f: impl FnOnce() -> Result<()>) {
-    let _guard = Guard::stdout().unwrap();
-    sink.duplicate_to_stdout().unwrap();
+fn with_stdout(sink: impl StdioOverride, f: impl FnOnce() -> Result<()>) {
+    let _guard = sink.override_stdout().unwrap();
     f().unwrap()
 }
 
-fn with_stderr(sink: impl Duplicate, f: impl FnOnce() -> Result<()>) {
-    let _guard = Guard::stderr().unwrap();
-    sink.duplicate_to_stderr().unwrap();
+fn with_stderr(sink: impl StdioOverride, f: impl FnOnce() -> Result<()>) {
+    let _guard = sink.override_stderr().unwrap();
     f().unwrap()
 }
 
-fn with_stdin(source: impl Duplicate, f: impl FnOnce() -> Result<()>) {
-    let _guard = Guard::stdin().unwrap();
-    source.duplicate_to_stdin().unwrap();
+fn with_stdin(source: impl StdioOverride, f: impl FnOnce() -> Result<()>) {
+    let _guard = source.override_stdin().unwrap();
     f().unwrap()
 }
 

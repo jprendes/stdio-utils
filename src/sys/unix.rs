@@ -1,35 +1,45 @@
 use std::io::{Error, Result};
-use std::os::fd::{AsFd, AsRawFd};
-pub use std::os::fd::{OwnedFd as Owned, RawFd};
+pub(crate) use std::os::fd::{AsFd, BorrowedFd, OwnedFd};
+use std::os::fd::{AsRawFd, RawFd};
 
-pub(crate) use libc::{STDERR_FILENO, STDIN_FILENO, STDOUT_FILENO};
+use crate::Stdio;
 
 pub(crate) const DEV_NULL: &str = "/dev/null";
 
-impl<T: AsFd> crate::private::Sealed for T {}
-
-impl<T: AsFd> crate::Duplicate for T {
-    fn duplicate(&self) -> Result<Owned> {
-        self.as_fd().try_clone_to_owned()
+impl Stdio {
+    fn as_raw_fd(&self) -> RawFd {
+        match self {
+            Stdio::Stdin => libc::STDIN_FILENO,
+            Stdio::Stdout => libc::STDOUT_FILENO,
+            Stdio::Stderr => libc::STDERR_FILENO,
+        }
     }
 
-    unsafe fn duplicate_to_fd(&self, dst: RawFd) -> Result<()> {
-        let new = unsafe { libc::dup2(self.as_fd().as_raw_fd(), dst) };
-        if new < 0 {
-            return Err(Error::other("Failed to clone file descriptor"));
+    unsafe fn set_raw_fd(&self, fd: RawFd) -> Result<()> {
+        if libc::dup2(fd, self.as_raw_fd()) < 0 {
+            return Err(Error::last_os_error());
         }
         Ok(())
     }
+}
 
-    fn duplicate_to_stdout(&self) -> Result<()> {
-        unsafe { self.duplicate_to_fd(STDOUT_FILENO) }
+impl AsRawFd for Stdio {
+    fn as_raw_fd(&self) -> RawFd {
+        match self {
+            Stdio::Stdin => libc::STDIN_FILENO,
+            Stdio::Stdout => libc::STDOUT_FILENO,
+            Stdio::Stderr => libc::STDERR_FILENO,
+        }
     }
+}
 
-    fn duplicate_to_stderr(&self) -> Result<()> {
-        unsafe { self.duplicate_to_fd(STDERR_FILENO) }
-    }
+pub(crate) fn borrow_fd(file: &impl AsFd) -> BorrowedFd<'_> {
+    file.as_fd()
+}
 
-    fn duplicate_to_stdin(&self) -> Result<()> {
-        unsafe { self.duplicate_to_fd(STDIN_FILENO) }
-    }
+pub(crate) unsafe fn override_stdio(file: impl AsFd, stdio: Stdio) -> Result<OwnedFd> {
+    let fd = stdio.as_raw_fd();
+    let backup = BorrowedFd::borrow_raw(fd).try_clone_to_owned()?;
+    stdio.set_raw_fd(file.as_fd().as_raw_fd())?;
+    Ok(backup)
 }

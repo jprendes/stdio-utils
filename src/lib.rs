@@ -3,126 +3,100 @@
 mod sys;
 
 use std::fs::File;
-use std::io::{stderr, stdin, stdout, Result};
+use std::io::Result;
 
-use sys::DEV_NULL;
+use crate::sys::{borrow_fd, override_stdio, AsFd, BorrowedFd, OwnedFd, DEV_NULL};
 
-use crate::sys::{Owned, RawFd, STDERR_FILENO, STDIN_FILENO, STDOUT_FILENO};
-
-mod private {
-    pub trait Sealed {}
+#[derive(Clone, Copy)]
+enum Stdio {
+    Stdin,
+    Stdout,
+    Stderr,
 }
 
-pub trait Duplicate: private::Sealed {
-    #[doc(hidden)]
-    fn duplicate(&self) -> Result<Owned>;
-
-    #[doc(hidden)]
-    unsafe fn duplicate_to_fd(&self, dst: RawFd) -> Result<()>;
-
+pub trait StdioOverride: AsFd {
     /// Replace the process standard output with a duplicate of the file descriptor.
     ///
     /// ```rust
-    /// # use stdio_utils::Duplicate as _;
+    /// # use stdio_utils::StdioOverride as _;
     /// # use std::fs::{File, read_to_string};
     /// # use std::io::stdout;
     /// # let mut lock = stdout().lock();
-    /// File::create("./output.txt")?.duplicate_to_stdout()?;
+    /// let _guard = File::create("./output.txt")?.override_stdout()?;
     /// println!("hello world!");
     /// let output = read_to_string("./output.txt")?;
     /// assert_eq!(output, "hello world!\n");
     /// # std::io::Result::Ok(())
     /// ```
-    fn duplicate_to_stdout(&self) -> Result<()>;
+    fn override_stdout(&self) -> Result<Guard> {
+        let stdio = Stdio::Stdout;
+        let backup = unsafe { override_stdio(self, stdio) }?;
+        let backup = Some(backup);
+        Ok(Guard { backup, stdio })
+    }
 
     /// Replace the process standard error with a duplicate of the file descriptor.
     ///
-    /// See [duplicate_to_stdout](Duplicate::duplicate_to_stdout).
-    fn duplicate_to_stderr(&self) -> Result<()>;
+    /// See [duplicate_to_stdout](StdioOverride::duplicate_to_stdout).
+    fn override_stderr(&self) -> Result<Guard> {
+        let stdio = Stdio::Stderr;
+        let backup = unsafe { override_stdio(self, stdio) }?;
+        let backup = Some(backup);
+        Ok(Guard { backup, stdio })
+    }
 
     /// Replace the process standard input with a duplicate of the file descriptor.
     ///
     /// ```rust
-    /// # use stdio_utils::Duplicate as _;
+    /// # use stdio_utils::StdioOverride as _;
     /// # use std::fs::{File, write};
     /// # use std::io::{stdin, stdout, read_to_string};
     /// # let mut lock = stdout().lock();
     /// write("./input.txt", "hello world!")?;
-    /// File::open("./input.txt")?.duplicate_to_stdin()?;
+    /// let _guard = File::open("./input.txt")?.override_stdin()?;
     /// let input = read_to_string(stdin())?;
     /// assert_eq!(input, "hello world!");
     /// # std::io::Result::Ok(())
     /// ```
-    fn duplicate_to_stdin(&self) -> Result<()>;
+    fn override_stdin(&self) -> Result<Guard> {
+        let stdio = Stdio::Stdin;
+        let backup = unsafe { override_stdio(self, stdio) }?;
+        let backup = Some(backup);
+        Ok(Guard { backup, stdio })
+    }
 }
 
+impl<T: AsFd> StdioOverride for T {}
+
+#[must_use]
 /// A type that restores a replaced file descriptor when it's dropped
 pub struct Guard {
-    fd: RawFd,
-    backup: Owned,
+    stdio: Stdio,
+    backup: Option<OwnedFd>,
+}
+
+impl Guard {
+    /// Consume the guard without restoring the file descriptor.
+    pub fn forget(self) {
+        self.into_inner();
+    }
+
+    /// Consume the guard returning an OwnedFd with the original file descriptor
+    pub fn into_inner(mut self) -> OwnedFd {
+        self.backup.take().unwrap()
+    }
+
+    /// Obtain a BorrowFd to the original file descriptor
+    pub fn borrow_inner(&self) -> BorrowedFd<'_> {
+        borrow_fd(self.backup.as_ref().unwrap())
+    }
 }
 
 impl Drop for Guard {
     fn drop(&mut self) {
-        let _ = unsafe { self.backup.duplicate_to_fd(self.fd) };
-    }
-}
-
-impl Guard {
-    fn new(owned: impl Duplicate, fd: RawFd) -> Result<Self> {
-        let backup = owned.duplicate()?;
-        Ok(Self { backup, fd })
-    }
-
-    /// Restore stdin to it's original file when the `Guard` is dropped.
-    ///
-    /// ```rust
-    /// # use stdio_utils::{Guard, null, Duplicate};
-    /// # use std::fs::{File, write};
-    /// # use std::io::{stdin, stdout, read_to_string};
-    /// # let mut lock = stdout().lock();
-    /// write("./input.txt", "hello world!")?;
-    /// File::open("./input.txt")?.duplicate_to_stdin()?;
-    ///
-    /// let guard = Guard::stdin();
-    /// null()?.duplicate_to_stdin()?;
-    ///
-    /// // reading from null errors on windows
-    /// let input = read_to_string(stdin()).unwrap_or_default();
-    /// assert_eq!(input, "");
-    ///
-    /// drop(guard);
-    ///
-    /// let input = read_to_string(stdin())?;
-    /// assert_eq!(input, "hello world!");
-    /// # std::io::Result::Ok(())
-    /// ```
-    pub fn stdin() -> Result<Self> {
-        Self::new(stdin(), STDIN_FILENO)
-    }
-
-    /// Restore stdout to it's original file when the `Guard` is dropped.
-    ///
-    /// ```rust
-    /// # use stdio_utils::{Guard, null, Duplicate};
-    /// # use std::io::stdout;
-    /// # let mut lock = stdout().lock();
-    /// let guard = Guard::stdout()?;
-    /// null()?.duplicate_to_stdout()?;
-    /// println!("hello hidden world!"); // This won't be printed
-    /// drop(guard);
-    /// println!("hello visible world!"); // This will be printed
-    /// # std::io::Result::Ok(())
-    /// ```
-    pub fn stdout() -> Result<Self> {
-        Self::new(stdout(), STDOUT_FILENO)
-    }
-
-    /// Restore stderr to it's original file when the `Guard` is dropped.
-    ///
-    /// See [stdout](Guard::stdout).
-    pub fn stderr() -> Result<Self> {
-        Self::new(stderr(), STDERR_FILENO)
+        if let Some(backup) = self.backup.take() {
+            let _ = unsafe { override_stdio(backup, self.stdio) };
+        }
     }
 }
 
@@ -141,11 +115,11 @@ impl Guard {
 /// to stdout
 ///
 /// ```rust
-/// # use stdio_utils::{null, Duplicate};
+/// # use stdio_utils::{null, StdioOverride as _};
 /// # use std::io::Write;
 /// # use std::io::stdout;
 /// # let mut lock = stdout().lock();
-/// null()?.duplicate_to_stdout();
+/// let _guard = null()?.override_stdout();
 /// println!("hello world!"); // this will never print
 /// # std::io::Result::Ok(())
 /// ```
