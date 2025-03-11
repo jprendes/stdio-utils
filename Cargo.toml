@@ -1,5 +1,6 @@
 [package]
 name = "stdio-utils"
+description = "Utilities for working with the process standard input and output"
 version = "0.1.0"
 edition = "2021"
 license = "Apache-2.0"
