@@ -104,11 +104,6 @@ impl Guard {
     pub fn into_inner(mut self) -> OwnedFd {
         self.backup.take().unwrap()
     }
-
-    /// Obtain a BorrowFd to the original file descriptor
-    pub fn borrow_inner(&self) -> BorrowedFd<'_> {
-        self.backup.as_ref().unwrap().borrow_file()
-    }
 }
 
 impl Drop for Guard {

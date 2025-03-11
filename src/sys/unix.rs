@@ -2,7 +2,7 @@ use std::io::{Error, Result};
 pub(crate) use std::os::fd::{AsFd, BorrowedFd, OwnedFd};
 use std::os::fd::{AsRawFd, RawFd};
 
-use crate::{AsFdExt as _, Stdio};
+use crate::{AsFdExt as _, Guard, Stdio};
 
 pub(crate) const DEV_NULL: &str = "/dev/null";
 
@@ -26,6 +26,12 @@ impl Stdio {
 impl AsFd for Stdio {
     fn as_fd(&self) -> BorrowedFd<'static> {
         unsafe { BorrowedFd::borrow_raw(self.as_raw_fd()) }
+    }
+}
+
+impl AsFd for Guard {
+    fn as_fd(&self) -> BorrowedFd<'_> {
+        self.backup.as_ref().unwrap().borrow_file()
     }
 }
 

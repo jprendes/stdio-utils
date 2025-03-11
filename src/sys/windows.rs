@@ -7,7 +7,7 @@ use std::os::windows::io::{AsRawHandle, FromRawHandle, IntoRawHandle, RawHandle}
 use windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE;
 use windows_sys::Win32::System::Console::*;
 
-use crate::{AsFdExt as _, Stdio};
+use crate::{AsFdExt as _, Guard, Stdio};
 
 pub(crate) const DEV_NULL: &str = "nul";
 
@@ -33,6 +33,12 @@ impl Stdio {
             return Err(Error::last_os_error());
         }
         Ok(())
+    }
+}
+
+impl AsFd for Guard {
+    fn as_handle(&self) -> BorrowedFd<'_> {
+        self.backup.as_ref().unwrap().borrow_file()
     }
 }
 
