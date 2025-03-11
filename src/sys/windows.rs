@@ -7,7 +7,7 @@ use std::os::windows::io::{AsRawHandle, FromRawHandle, IntoRawHandle, RawHandle}
 use windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE;
 use windows_sys::Win32::System::Console::*;
 
-use crate::Stdio;
+use crate::{AsFdExt as _, Stdio};
 
 pub(crate) const DEV_NULL: &str = "nul";
 
@@ -36,13 +36,13 @@ impl Stdio {
     }
 }
 
-pub(crate) fn borrow_fd(file: &impl AsFd) -> BorrowedFd<'_> {
+pub(crate) fn borrow_fd(file: &(impl AsFd + ?Sized)) -> BorrowedFd<'_> {
     file.as_handle()
 }
 
 pub(crate) unsafe fn override_stdio(file: impl AsFd, stdio: Stdio) -> Result<OwnedFd> {
     let original = stdio.as_raw_handle()?;
-    let file = file.as_handle().try_clone_to_owned()?;
+    let file = file.duplicate_file()?;
     stdio.set_raw_handle(file.as_handle().as_raw_handle())?;
     let _ = file.into_raw_handle(); // drop ownership of the handle, it's managed the stdio now
     Ok(OwnedFd::from_raw_handle(original))

@@ -68,6 +68,25 @@ pub trait StdioOverride: AsFd {
 
 impl<T: AsFd> StdioOverride for T {}
 
+pub trait AsFdExt: AsFd {
+    /// Borrow the current file descriptor as a BorrowFd.
+    ///
+    /// This method provides a cross-platform way of calling
+    /// `as_fd()` on Unix and `as_handle()` on Windows.
+    fn borrow_file(&self) -> BorrowedFd<'_> {
+        borrow_fd(self)
+    }
+
+    /// Duplicates the current file descriptor as an OwnedFd.
+    ///
+    /// This is a shorthand for to `file.borrow_fd().try_clone_to_owned()`.
+    fn duplicate_file(&self) -> Result<OwnedFd> {
+        self.borrow_file().try_clone_to_owned()
+    }
+}
+
+impl<T: AsFd> AsFdExt for T {}
+
 #[must_use]
 /// A type that restores a replaced file descriptor when it's dropped
 pub struct Guard {
@@ -88,7 +107,7 @@ impl Guard {
 
     /// Obtain a BorrowFd to the original file descriptor
     pub fn borrow_inner(&self) -> BorrowedFd<'_> {
-        borrow_fd(self.backup.as_ref().unwrap())
+        self.backup.as_ref().unwrap().borrow_file()
     }
 }
 
