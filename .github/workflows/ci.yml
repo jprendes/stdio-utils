@@ -35,3 +35,6 @@ jobs:
       - name: Test
         shell: bash
         run: cargo test
+      - name: Examples (basic)
+        shell: bash
+        run: cargo run --example basic
